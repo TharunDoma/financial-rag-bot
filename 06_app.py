@@ -28,7 +28,10 @@ load_dotenv()
 
 # Works locally (.env) and on Streamlit Cloud (st.secrets)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "")
-CHROMA_DB_PATH  = "chroma_db"
+
+# Absolute path — works on any machine regardless of where the app is launched from
+BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
+CHROMA_DB_PATH  = os.path.join(BASE_DIR, "chroma_db")
 COLLECTION_NAME = "apple_10k_2025"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 GEMINI_MODEL    = "gemini-2.0-flash"
