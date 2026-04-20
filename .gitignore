@@ -1,0 +1,21 @@
+# ============================================================
+#  .gitignore — Protect secrets and keep the repo clean
+# ============================================================
+
+# NEVER commit your API keys
+.env
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# ChromaDB local vector store (gets rebuilt from source data)
+chroma_db/
+
+# Raw PDF data (large files, store separately)
+data/
+
+# Virtual environment
+venv/
+.venv/
