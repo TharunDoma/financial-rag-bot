@@ -10,12 +10,6 @@ __pycache__/
 *.pyc
 *.pyo
 
-# ChromaDB local vector store (gets rebuilt from source data)
-chroma_db/
-
-# Raw PDF data (large files, store separately)
-data/
-
-# Virtual environment
+# Virtual environment — never commit this
 venv/
 .venv/

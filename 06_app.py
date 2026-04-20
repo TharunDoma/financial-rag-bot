@@ -26,7 +26,8 @@ from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunct
 # ---------------------------------------------------------------------------
 load_dotenv()
 
-GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY")
+# Works locally (.env) and on Streamlit Cloud (st.secrets)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "")
 CHROMA_DB_PATH  = "chroma_db"
 COLLECTION_NAME = "apple_10k_2025"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
