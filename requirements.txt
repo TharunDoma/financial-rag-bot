@@ -2,8 +2,9 @@ streamlit
 chromadb
 pymupdf
 python-dotenv
-google-genai
 langchain
 langchain-community
 langchain-text-splitters
 sentence-transformers
+requests
+protobuf==3.20.3

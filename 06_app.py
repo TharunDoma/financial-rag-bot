@@ -15,9 +15,9 @@ Usage:
 """
 
 import os
+import requests
 import streamlit as st
 from dotenv import load_dotenv
-from google import genai
 import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
@@ -27,7 +27,10 @@ from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunct
 load_dotenv()
 
 # Works locally (.env) and on Streamlit Cloud (st.secrets)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
+if not GEMINI_API_KEY:
+    st.error("❌ GEMINI_API_KEY is missing. Add it in Streamlit Cloud → Manage App → Secrets.")
+    st.stop()
 
 # Absolute path — works on any machine regardless of where the app is launched from
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
@@ -59,9 +62,9 @@ def load_collection():
     return client.get_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
 
 
-@st.cache_resource
 def load_gemini():
-    return genai.Client(api_key=GEMINI_API_KEY)
+    # No SDK — just return the API key, we call REST directly
+    return GEMINI_API_KEY
 
 
 # ---------------------------------------------------------------------------
@@ -87,10 +90,25 @@ QUESTION: {question}
 ANSWER:"""
 
 
-def get_answer(client, question: str, chunks: list[str]) -> str:
-    prompt = build_prompt(question, chunks)
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    return response.text
+def get_answer(api_key: str, question: str, chunks: list[str]) -> str:
+    """
+    Calls Gemini via direct REST API — no SDK.
+    This gives us transparent error messages and zero SDK version conflicts.
+    """
+    prompt  = build_prompt(question, chunks)
+    url     = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={api_key}"
+    )
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+
+    resp = requests.post(url, json=payload, timeout=30)
+
+    if resp.status_code != 200:
+        # Show the raw API error so we can debug it
+        return f"❌ API Error {resp.status_code}: {resp.text}"
+
+    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +166,11 @@ if prompt := st.chat_input("Ask a question about Apple's 10-K..."):
     with st.chat_message("assistant"):
         with st.spinner("Retrieving relevant data and generating answer..."):
             chunks = retrieve_chunks(collection, prompt)
-            answer = get_answer(gemini, prompt, chunks)
+            try:
+                answer = get_answer(gemini, prompt, chunks)
+            except Exception as e:
+                st.error(f"❌ Gemini API error: {str(e)}")
+                st.stop()
 
         st.markdown(answer)
 
