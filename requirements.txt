@@ -6,5 +6,8 @@ langchain
 langchain-community
 langchain-text-splitters
 sentence-transformers
+<<<<<<< HEAD
 requests
+=======
+>>>>>>> 0a5b4c2380d6539cf7a061007745a3e2f1737f0a
 protobuf==3.20.3
