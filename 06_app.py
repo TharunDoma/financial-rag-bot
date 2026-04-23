@@ -22,26 +22,7 @@ import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 # ---------------------------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------------------------
-load_dotenv()
-
-# Works locally (.env) and on Streamlit Cloud (st.secrets)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
-if not GEMINI_API_KEY:
-    st.error("❌ GEMINI_API_KEY is missing. Add it in Streamlit Cloud → Manage App → Secrets.")
-    st.stop()
-
-# Absolute path — works on any machine regardless of where the app is launched from
-BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
-CHROMA_DB_PATH  = os.path.join(BASE_DIR, "chroma_db")
-COLLECTION_NAME = "apple_10k_2025"
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-GEMINI_MODEL    = "gemini-2.0-flash"
-TOP_K           = 5
-
-# ---------------------------------------------------------------------------
-# PAGE SETUP — Must be first Streamlit call
+# PAGE SETUP — MUST be the very first Streamlit call. Nothing st.* before this.
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="Financial Analyst RAG Bot",
@@ -50,21 +31,40 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
+# CONFIG — Load API key from .env (local) or Streamlit secrets (cloud)
+# ---------------------------------------------------------------------------
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if not GEMINI_API_KEY:
+    try:
+        GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        GEMINI_API_KEY = ""
+
+if not GEMINI_API_KEY:
+    st.error("❌ GEMINI_API_KEY is missing. Add it in Streamlit Cloud → Manage App → Secrets.")
+    st.stop()
+
+# Absolute path — works on any machine regardless of launch directory
+BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
+CHROMA_DB_PATH  = os.path.join(BASE_DIR, "chroma_db")
+COLLECTION_NAME = "apple_10k_2025"
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+GEMINI_MODEL    = "gemini-2.0-flash"
+TOP_K           = 5
+
+
+# ---------------------------------------------------------------------------
 # CACHED RESOURCE LOADERS
-# DE Concept: @st.cache_resource loads once and reuses across all user
-#             sessions — same principle as a connection pool in a backend
-#             service. We don't reconnect to ChromaDB on every question.
+# @st.cache_resource loads once and reuses across all sessions —
+# same principle as a connection pool in a backend service.
 # ---------------------------------------------------------------------------
 @st.cache_resource
 def load_collection():
     embedding_fn = SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL)
     client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
     return client.get_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
-
-
-def load_gemini():
-    # No SDK — just return the API key, we call REST directly
-    return GEMINI_API_KEY
 
 
 # ---------------------------------------------------------------------------
@@ -90,25 +90,25 @@ QUESTION: {question}
 ANSWER:"""
 
 
-def get_answer(api_key: str, question: str, chunks: list[str]) -> str:
+def get_answer(question: str, chunks: list[str]) -> str:
     """
-    Calls Gemini via direct REST API — no SDK.
-    This gives us transparent error messages and zero SDK version conflicts.
+    Calls Gemini via direct REST API — no SDK, no version conflicts.
+    Returns the answer text, or an error string if the API call fails.
     """
     prompt  = build_prompt(question, chunks)
     url     = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={api_key}"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     )
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
-    resp = requests.post(url, json=payload, timeout=30)
-
-    if resp.status_code != 200:
-        # Show the raw API error so we can debug it
-        return f"❌ API Error {resp.status_code}: {resp.text}"
-
-    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        resp = requests.post(url, json=payload, timeout=30)
+        if resp.status_code != 200:
+            return f"❌ API Error {resp.status_code}: {resp.text}"
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        return f"❌ Request failed: {str(e)}"
 
 
 # ---------------------------------------------------------------------------
@@ -127,21 +127,21 @@ st.divider()
 # ---------------------------------------------------------------------------
 # LOAD RESOURCES
 # ---------------------------------------------------------------------------
-with st.spinner("Loading vector store and AI model..."):
-    collection = load_collection()
-    gemini     = load_gemini()
+with st.spinner("Loading vector store..."):
+    try:
+        collection = load_collection()
+    except Exception as e:
+        st.error(f"❌ Failed to load ChromaDB: {str(e)}")
+        st.stop()
 
 st.success(f"✅ Ready — {collection.count()} chunks loaded from Apple 10-K 2025")
 
 # ---------------------------------------------------------------------------
-# CHAT HISTORY — Stored in session state (survives reruns within a session)
-# DE Concept: Session state is in-memory state management — the same pattern
-#             as a stateful streaming job that tracks context between events.
+# CHAT HISTORY
 # ---------------------------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Render all previous messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
@@ -157,20 +157,14 @@ for message in st.session_state.messages:
 # ---------------------------------------------------------------------------
 if prompt := st.chat_input("Ask a question about Apple's 10-K..."):
 
-    # Show user message
     with st.chat_message("user"):
         st.markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # Retrieve + Generate
     with st.chat_message("assistant"):
         with st.spinner("Retrieving relevant data and generating answer..."):
             chunks = retrieve_chunks(collection, prompt)
-            try:
-                answer = get_answer(gemini, prompt, chunks)
-            except Exception as e:
-                st.error(f"❌ Gemini API error: {str(e)}")
-                st.stop()
+            answer = get_answer(prompt, chunks)
 
         st.markdown(answer)
 
@@ -180,7 +174,6 @@ if prompt := st.chat_input("Ask a question about Apple's 10-K..."):
                 st.text(chunk[:400])
                 st.divider()
 
-    # Save assistant message with sources
     st.session_state.messages.append({
         "role": "assistant",
         "content": answer,
@@ -188,7 +181,7 @@ if prompt := st.chat_input("Ask a question about Apple's 10-K..."):
     })
 
 # ---------------------------------------------------------------------------
-# SIDEBAR — Suggested questions and info
+# SIDEBAR
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("💡 Try These Questions")
@@ -207,7 +200,7 @@ with st.sidebar:
     st.header("🛠️ Pipeline Info")
     st.markdown(f"""
 - **Embedding model:** `{EMBEDDING_MODEL}` (local)
-- **LLM:** `{GEMINI_MODEL}`
+- **LLM:** `{GEMINI_MODEL}` (REST API)
 - **Vector DB:** ChromaDB (local)
 - **Chunks:** {collection.count()}
 - **Top-K retrieval:** {TOP_K} chunks per query
