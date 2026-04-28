@@ -2,8 +2,7 @@
 
 An end-to-end **Retrieval-Augmented Generation (RAG) pipeline** that lets you ask natural language questions about Apple's 2025 SEC 10-K filing and receive grounded, accurate answers — with source citations from the actual document.
 
-> **Live Demo:** [your-app.streamlit.app](https://your-app.streamlit.app)
-
+> **Live Demo:** https://financial-rag-bot-c45mbmxsbbgmvzyxsc3ynn.streamlit.app/
 ---
 
 ## 🎯 What This Project Demonstrates
