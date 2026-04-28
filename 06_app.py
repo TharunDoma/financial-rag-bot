@@ -15,6 +15,7 @@ Usage:
 """
 
 import os
+import time
 import requests
 import streamlit as st
 from dotenv import load_dotenv
@@ -51,7 +52,7 @@ BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
 CHROMA_DB_PATH  = os.path.join(BASE_DIR, "chroma_db")
 COLLECTION_NAME = "apple_10k_2025"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-GEMINI_MODEL    = "gemini-2.0-flash"
+GEMINI_MODEL    = "gemini-2.0-flash-lite"
 TOP_K           = 5
 
 
@@ -65,6 +66,18 @@ def load_collection():
     embedding_fn = SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL)
     client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
     return client.get_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
+
+
+@st.cache_data(show_spinner=False)
+def cached_get_answer(question: str, chunks_key: str, chunks: tuple) -> str:
+    """
+    Cache answers by question — same question never hits the API twice.
+    DE Concept: This is query-level caching, the same pattern used in
+                Redis or Memcached in production systems. Identical queries
+                return instantly from memory instead of calling the LLM.
+    chunks_key is a hashable string used as part of the cache key.
+    """
+    return get_answer(question, list(chunks))
 
 
 # ---------------------------------------------------------------------------
@@ -92,8 +105,8 @@ ANSWER:"""
 
 def get_answer(question: str, chunks: list[str]) -> str:
     """
-    Calls Gemini via direct REST API — no SDK, no version conflicts.
-    Returns the answer text, or an error string if the API call fails.
+    Calls Gemini via direct REST API.
+    DE Concept: Modular design means swapping providers is just a config change.
     """
     prompt  = build_prompt(question, chunks)
     url     = (
@@ -115,7 +128,7 @@ def get_answer(question: str, chunks: list[str]) -> str:
 # UI — Header
 # ---------------------------------------------------------------------------
 st.title("📊 Financial Analyst RAG Bot")
-st.caption("Powered by Apple 10-K 2025 · ChromaDB · Gemini 2.0 Flash · all-MiniLM-L6-v2")
+st.caption("Powered by Apple 10-K 2025 · ChromaDB · Gemini 2.0 Flash Lite · all-MiniLM-L6-v2")
 
 st.markdown("""
 Ask any question about Apple's 2025 annual report.
@@ -162,9 +175,10 @@ if prompt := st.chat_input("Ask a question about Apple's 10-K..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("assistant"):
-        with st.spinner("Retrieving relevant data and generating answer..."):
-            chunks = retrieve_chunks(collection, prompt)
-            answer = get_answer(prompt, chunks)
+        with st.spinner("🔍 Retrieving from 10-K and generating answer... (first time may take 15s)"):
+            chunks     = retrieve_chunks(collection, prompt)
+            chunks_key = "|".join(chunks)
+            answer     = cached_get_answer(prompt, chunks_key, tuple(chunks))
 
         st.markdown(answer)
 
@@ -200,7 +214,7 @@ with st.sidebar:
     st.header("🛠️ Pipeline Info")
     st.markdown(f"""
 - **Embedding model:** `{EMBEDDING_MODEL}` (local)
-- **LLM:** `{GEMINI_MODEL}` (REST API)
+- **LLM:** `{GEMINI_MODEL}` (Gemini free tier)
 - **Vector DB:** ChromaDB (local)
 - **Chunks:** {collection.count()}
 - **Top-K retrieval:** {TOP_K} chunks per query
